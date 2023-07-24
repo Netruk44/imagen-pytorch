@@ -319,6 +319,22 @@ class GaussianDiffusionContinuousTimes(nn.Module):
         alpha, sigma = log_snr_to_alpha_sigma(log_snr)
         return (x_t - sigma * noise) / alpha.clamp(min = 1e-8)
 
+# softmax1 - part of quiet attention (https://www.evanmiller.org/attention-is-off-by-one.html)
+class Softmax_1(nn.Module):
+    def __init__(self, temperature=1.0):
+        super(Softmax_1, self).__init__()
+        self.temperature = temperature
+
+    def forward(self, x, dim=1, dtype=torch.float32):
+        logits = x / self.temperature
+        exp_logits = torch.exp(logits)
+
+        # The only difference between regular Softmax and Softmax_1 is the '1. +' in the denominator
+        custom_softmax_probs = exp_logits / (1. + torch.sum(exp_logits, dim=dim, keepdim=True))
+        return custom_softmax_probs.to(dtype)
+
+softmax_1 = Softmax_1()
+
 # norms and residuals
 
 class LayerNorm(nn.Module):
@@ -430,7 +446,8 @@ class PerceiverAttention(nn.Module):
 
         # attention
 
-        attn = sim.softmax(dim = -1, dtype = torch.float32)
+        #attn = sim.softmax(dim = -1, dtype = torch.float32)
+        attn = softmax_1(sim, dim = -1, dtype = torch.float32)
         attn = attn.to(sim.dtype)
 
         out = einsum('... i j, ... j d -> ... i d', attn, v)
@@ -573,7 +590,8 @@ class Attention(nn.Module):
 
         # attention
 
-        attn = sim.softmax(dim = -1, dtype = torch.float32)
+        #attn = sim.softmax(dim = -1, dtype = torch.float32)
+        attn = softmax_1(sim, dim = -1, dtype = torch.float32)
         attn = attn.to(sim.dtype)
 
         # aggregate values
@@ -821,7 +839,8 @@ class CrossAttention(nn.Module):
             mask = rearrange(mask, 'b j -> b 1 1 j')
             sim = sim.masked_fill(~mask, max_neg_value)
 
-        attn = sim.softmax(dim = -1, dtype = torch.float32)
+        #attn = sim.softmax(dim = -1, dtype = torch.float32)
+        attn = softmax_1(sim, dim = -1, dtype = torch.float32)
         attn = attn.to(sim.dtype)
 
         out = einsum('b h i j, b h j d -> b h i d', attn, v)
@@ -858,8 +877,10 @@ class LinearCrossAttention(CrossAttention):
 
         # linear attention
 
-        q = q.softmax(dim = -1)
-        k = k.softmax(dim = -2)
+        #q = q.softmax(dim = -1)
+        #k = k.softmax(dim = -2)
+        q = softmax_1(q, dim = -1)
+        k = softmax_1(k, dim = -2)
 
         q = q * self.scale
 
@@ -925,8 +946,10 @@ class LinearAttention(nn.Module):
             k = torch.cat((k, ck), dim = -2)
             v = torch.cat((v, cv), dim = -2)
 
-        q = q.softmax(dim = -1)
-        k = k.softmax(dim = -2)
+        #q = q.softmax(dim = -1)
+        #k = k.softmax(dim = -2)
+        q = softmax_1(q, dim = -1)
+        k = softmax_1(k, dim = -2)
 
         q = q * self.scale
 
@@ -960,7 +983,8 @@ class GlobalContext(nn.Module):
     def forward(self, x):
         context = self.to_k(x)
         x, context = map(lambda t: rearrange(t, 'b n ... -> b n (...)'), (x, context))
-        out = einsum('b i n, b c n -> b c i', context.softmax(dim = -1), x)
+        #out = einsum('b i n, b c n -> b c i', context.softmax(dim = -1), x)
+        out = einsum('b i n, b c n -> b c i', softmax_1(context, dim = -1), x)
         out = rearrange(out, '... -> ... 1')
         return self.net(out)
 
