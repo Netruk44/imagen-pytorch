@@ -327,10 +327,10 @@ class Softmax_1(nn.Module):
 
     def forward(self, x, dim=1, dtype=torch.float32):
         logits = x / self.temperature
-        exp_logits = torch.exp(logits)
+        logits.exp_()
 
         # The only difference between regular Softmax and Softmax_1 is the '1. +' in the denominator
-        custom_softmax_probs = exp_logits / (1. + torch.sum(exp_logits, dim=dim, keepdim=True))
+        custom_softmax_probs = logits / (1. + logits.sum(dim=dim, keepdim=True))
         return custom_softmax_probs.to(dtype)
 
 softmax_1 = Softmax_1()
